@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="9f238050-38bd-4b32-885e-200d471109a3" name="192.168.0.250">
+        <fileTransfer rootFolder="/home/firefly/myprogram/broadcast/bin" accessType="SFTP" host="192.168.10.250" port="22" sshConfigId="297bdbcc-7856-4833-ac06-f72574c874cf" sshConfig="firefly@192.168.10.250:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

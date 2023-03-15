@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteTargetsManager">
+    <targets>
+      <target name="firefly@192.168.10.250:22" type="ssh/sftp" uuid="8ab20113-cdf7-4eae-9903-3c503d968364">
+        <config>
+          <option name="projectRootOnTarget" value="/home/firefly/Broadcast" />
+          <option name="serverName" value="firefly@192.168.10.250:22 password" />
+        </config>
+        <ContributedStateBase type="GoLanguageRuntime">
+          <config>
+            <option name="compiledExecutablesVolume">
+              <VolumeState>
+                <option name="remotePath" value="/home/firefly/myprogram/broadcast/bin" />
+              </VolumeState>
+            </option>
+            <option name="goPath" value="/home/firefly/go" />
+            <option name="goRoot" value="/usr/local/go/bin/go" />
+            <option name="projectSourcesVolume">
+              <VolumeState>
+                <option name="remotePath" value="/home/firefly/myprogram/broadcast" />
+              </VolumeState>
+            </option>
+          </config>
+        </ContributedStateBase>
+      </target>
+      <target name="xrd@192.168.10.243:22" type="ssh/sftp" uuid="bba55f68-0aca-46f7-8221-dc74f0690cf2">
+        <config>
+          <option name="projectRootOnTarget" value="/home/xrd/Broadcast" />
+          <option name="serverName" value="xrd@192.168.10.243:22 password" />
+        </config>
+        <ContributedStateBase type="GoLanguageRuntime">
+          <config>
+            <option name="compiledExecutablesVolume">
+              <VolumeState>
+                <option name="remotePath" value="/home/xrd/myprogram/broadcast/bin" />
+              </VolumeState>
+            </option>
+            <option name="goPath" value="/home/xrd/go" />
+            <option name="goRoot" value="/usr/local/go/bin/go" />
+            <option name="projectSourcesVolume">
+              <VolumeState>
+                <option name="remotePath" value="/home/xrd/myprogram/broadcast" />
+              </VolumeState>
+            </option>
+          </config>
+        </ContributedStateBase>
+      </target>
+    </targets>
+  </component>
+</project>

@@ -1,0 +1,11 @@
+bill: '{"name":"默认节目","slot":[]}'
+log:
+    level: debug
+mqtt:
+    clientid: CoreBroadCast
+    host: 192.168.10.250:1883
+    password: public
+    username: admin
+server:
+    enable: true
+    Stop_Wait_Time: 900

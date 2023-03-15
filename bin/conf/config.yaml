@@ -1,0 +1,18 @@
+server:
+  enable: true
+  Stop_Wait_Time: 900
+  
+mqtt:
+  host: localhost:1883
+  userName: admin
+  password: public
+  clientId: CoreBroadCast
+
+log:
+  name: run.log
+  level: debug
+
+bill: '{"name":"默认节目","slot":[]}'
+
+file:
+  path: 
