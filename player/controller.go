@@ -31,6 +31,7 @@ const (
 
 // Controller 媒体播放控制器
 type Controller struct {
+	mu sync.Mutex
 	// enable 使能
 	enable bool
 	// filePath 文件存放路径
@@ -53,6 +54,7 @@ type Controller struct {
 	preTempLevel int
 	// state 状态 0：停止；1：播放；2：暂停；3：临时插入播放；4：播放内置文件
 	state     ControlState
+	wgPgmWait *sync.WaitGroup
 	wgPgmOver *sync.WaitGroup
 	wgTmpOver *sync.WaitGroup
 	//mxPgm     sync.Mutex
@@ -88,11 +90,12 @@ func NewControllerWithBill(filePath string, bill *Bill, enable bool, stopWaitTim
 	c = &Controller{
 		enable:       enable,
 		filePath:     filePath,
-		pgmPlayer:    &BeepAudioPlayer{},
-		tmpPlayer:    &BeepAudioPlayer{},
+		pgmPlayer:    &BeepAudioPlayer{name: "pgm"},
+		tmpPlayer:    &BeepAudioPlayer{name: "tmp"},
 		preTempLevel: 9,
 		state:        CsStop,
 		manager:      NewProgramManager(),
+		wgPgmWait:    &sync.WaitGroup{},
 		wgPgmOver:    nil,
 		wgTmpOver:    &sync.WaitGroup{},
 		inProgram:    false,
@@ -146,37 +149,59 @@ func (c *Controller) stopTempPlay(reason StopReason) {
 	if c.tmpCtrl == nil {
 		return
 	}
+
+	if c.mu.TryLock() {
+		defer c.mu.Unlock()
+	}
+	utils.Logger.Debug("停止临时文件播放")
 	c.preTempLevel = 9
 	c.tmpCtrl.Stop(reason)
 	c.tmpCtrl = nil
-	time.Sleep(c.stopWaitTime)
+
+	time.Sleep(c.stopWaitTime * time.Millisecond)
 }
 
 func (c *Controller) stopPgmPlay(reason StopReason) {
 	if c.pgmCtrl == nil {
 		return
 	}
+
+	if c.mu.TryLock() {
+		defer c.mu.Unlock()
+	}
+	utils.Logger.Debug("停止节目文件播放")
 	c.pgmCtrl.Stop(reason)
-	c.pgmCtrl = nil
+	time.Sleep(c.stopWaitTime * time.Millisecond)
 }
 
 func (c *Controller) pauseTempPlay() {
 	if c.tmpCtrl == nil {
 		return
 	}
+
+	utils.Logger.Debug("暂停临时文件播放")
 	c.tmpCtrl.Pause()
+	time.Sleep(300 * time.Millisecond)
 }
 
 func (c *Controller) pausePgmPlay() {
 	if c.pgmCtrl == nil {
 		return
 	}
+
+	utils.Logger.Debug("暂停节目文件播放")
 	c.pgmCtrl.Pause()
+	time.Sleep(300 * time.Millisecond)
+	return
 }
 
 func (c *Controller) resumeTempPlay() {
 	if c.tmpCtrl == nil {
 		return
+	}
+
+	if c.mu.TryLock() {
+		defer c.mu.Unlock()
 	}
 	c.state = CsTempPlay
 	c.tmpCtrl.Resume()
@@ -185,7 +210,12 @@ func (c *Controller) resumeTempPlay() {
 
 func (c *Controller) resumePgmPlay() {
 	if c.pgmCtrl == nil {
+		utils.Logger.Debug("恢复节目文件 pgmCtrl null")
 		return
+	}
+
+	if c.mu.TryLock() {
+		defer c.mu.Unlock()
 	}
 	c.state = CsProgramPlay
 	c.pgmCtrl.Resume()
@@ -226,18 +256,21 @@ func (c *Controller) startProgramManager() {
 }
 
 func getPlayIndex(playOrder, preIndex, totalCount int) int {
+	rlt := 0
 	if playOrder == 2 {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		idx := r.Intn(totalCount - 1)
 		if idx == preIndex {
-			if idx++; idx >= totalCount {
-				idx = 0
-			}
+			idx++
 		}
-		return idx
+		rlt = idx
 	} else {
-		return preIndex + 1
+		rlt = preIndex + 1
 	}
+	if rlt >= totalCount {
+		rlt = 0
+	}
+	return rlt
 }
 
 func (c *Controller) checkState() bool {
@@ -254,11 +287,6 @@ func (c *Controller) StartProgram(program *Program) {
 		utils.Logger.Debugf("开始[%s~%s]的节目", program.StartTime, program.EndTime)
 		fileCount := len(program.Files)
 
-		// 如果有临时播放，则等待临时播放结束
-		utils.Logger.Debug("start wait tmp over")
-		c.wgTmpOver.Wait()
-		utils.Logger.Debug("end wait tmp over")
-
 		var err error
 		c.state = CsProgramPlay
 		wg := &sync.WaitGroup{}
@@ -268,40 +296,70 @@ func (c *Controller) StartProgram(program *Program) {
 			for {
 				idx = getPlayIndex(program.PlayOrder, idx, fileCount)
 				file := program.Files[idx]
+				utils.Logger.Debug("before checkState 1")
 				if c.checkState() {
+					utils.Logger.Debug("checkState 1 goto over")
 					goto ProgramOver
 				}
 				if !file.Downloading {
 					utils.Logger.Debug("StartProgram enter playFile")
-					if c.pgmCtrl, err = playFile(c.pgmPlayer, file, c.filePath, false, c.volume, func(reason StopReason) {
+
+					// 如果有临时播放，则等待临时播放结束
+					utils.Logger.Debug("start wait tmp over")
+					c.wgTmpOver.Wait()
+					utils.Logger.Debug("end wait tmp over")
+
+					utils.Logger.Debug("before play pgm lock")
+					c.mu.Lock()
+					utils.Logger.Debug("after play pgm lock")
+					time.Sleep(300 * time.Millisecond)
+					c.pgmCtrl, err = playFile(c.pgmPlayer, file, c.filePath, false, c.volume, func(reason StopReason) {
+						c.pgmCtrl = nil
+						if c.mu.TryLock() {
+							defer c.mu.Unlock()
+						}
+
 						utils.Logger.Debugf("文件[%s]播放结束", file.Name)
 						wg.Done()
-					}); err == nil {
+					})
+					utils.Logger.Debug("before play pgm unlock")
+					c.mu.Unlock()
+					utils.Logger.Debug("after play pgm unlock")
+					if err == nil {
 						utils.Logger.Debug("StartProgram playing file")
 						wg.Add(1)
+						utils.Logger.Debug("before checkState 2")
 						if c.checkState() {
+							utils.Logger.Debug("checkState 2 stop pgm play")
 							c.stopPgmPlay(ForceOver)
+							wg.Done()
+							goto ProgramOver
 						}
 						wg.Wait()
 					}
 					utils.Logger.Debug("StartProgram end playFile")
-					time.Sleep(c.stopWaitTime)
+					time.Sleep(500 * time.Millisecond)
 				}
+				utils.Logger.Debug("before checkState 3")
 				if c.checkState() {
+					utils.Logger.Debug("checkState 3 goto over")
 					goto ProgramOver
 				}
 				playCount++
 				if playCount > fileCount {
+					utils.Logger.Debug("playCount > fileCount break")
 					break
 				}
 			}
 			if program.PlayMode == Once {
+				utils.Logger.Debug("program.PlayMode == Once goto over")
 				goto ProgramOver
 			}
 		}
 	ProgramOver:
 		utils.Logger.Debugf("[%s~%s]的节目结束", program.StartTime, program.EndTime)
 		c.inProgram = false
+		c.pgmCtrl = nil
 		if c.wgPgmOver != nil {
 			c.wgPgmOver.Done()
 		} else if c.state != CsTempPlay && c.state != CsInnerPlay {
@@ -312,6 +370,8 @@ func (c *Controller) StartProgram(program *Program) {
 }
 
 func (c *Controller) StopProgram() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	_ = c.beforeProcess(func() error {
 		if !c.inProgram {
 			return nil
@@ -446,9 +506,23 @@ func (c *Controller) tempPlayFile(file *MusicFile, state ControlState, level, ti
 	if c.preTempLevel < level {
 		return errors.New("已经有更紧急的文件在播放")
 	}
+
+	utils.Logger.
+		WithFields(log.Fields{
+			"c": "ctrl",
+		}).
+		Debugf("tempPlayFile before lock")
+	c.mu.Lock()
+	utils.Logger.
+		WithFields(log.Fields{
+			"c": "ctrl",
+		}).
+		Debugf("tempPlayFile after lock")
+	defer c.mu.Unlock()
+
 	c.pausePgmPlay()
-	//c.pauseTempPlay()
 	c.stopTempPlay(ForceOver)
+
 	c.state = state
 	var (
 		err  error
@@ -456,6 +530,14 @@ func (c *Controller) tempPlayFile(file *MusicFile, state ControlState, level, ti
 		tmr  *time.Timer
 	)
 	ctrl, err = playFile(c.tmpPlayer, file, c.filePath, true, c.volume, func(reason StopReason) {
+		if tmr != nil {
+			tmr.Stop()
+			tmr = nil
+		}
+		if c.mu.TryLock() {
+			defer c.mu.Unlock()
+		}
+
 		fileType := "临时"
 		if state == CsInnerPlay {
 			fileType = "内置"
@@ -463,24 +545,21 @@ func (c *Controller) tempPlayFile(file *MusicFile, state ControlState, level, ti
 		utils.Logger.
 			WithFields(log.Fields{
 				"c": "ctrl",
-			}).
-			Debugf("播放%s文件结束", fileType)
+			}).Debugf("播放%s文件结束", fileType)
 		c.wgTmpOver.Done()
 		if reason != ForceOver {
-			c.tmpCtrl = nil
-			if tmr != nil {
-				tmr.Stop()
-				tmr = nil
-			}
-			if c.pgmCtrl != nil {
-				var tmrPgm *time.Timer
-				tmrPgm = time.AfterFunc(time.Millisecond, func() {
-					c.resumePgmPlay()
-					if tmrPgm != nil {
-						tmrPgm.Stop()
-						tmrPgm = nil
-					}
-				})
+			if c.tmpCtrl == ctrl {
+				c.tmpCtrl = nil
+				if c.pgmCtrl != nil {
+					//var tmrPgm *time.Timer
+					time.AfterFunc(time.Millisecond*100, func() {
+						c.resumePgmPlay()
+						//if tmrPgm != nil {
+						//	tmrPgm.Stop()
+						//	tmrPgm = nil
+						//}
+					})
+				}
 			}
 		}
 	})
@@ -491,6 +570,11 @@ func (c *Controller) tempPlayFile(file *MusicFile, state ControlState, level, ti
 		c.wgTmpOver.Add(1)
 		if timeLen > 0 {
 			tmr = time.AfterFunc(time.Duration(timeLen)*time.Second, func() {
+				utils.Logger.
+					WithFields(log.Fields{
+						"c": "ctrl",
+					}).
+					Debugf("stop tmp play by time over")
 				ctrl.Stop(TimeOver)
 			})
 		}
@@ -567,6 +651,7 @@ func playFile(player AudioPlayer, file *MusicFile, filePath string, waitDownload
 			"c": "ctrl",
 		}).
 		Debugf("准备播放[%s]文件...", file.Name)
+
 	if ctrl, err = player.Play(fileName, file.PlayTimes, volume, callback); err != nil {
 		logStr = fmt.Sprintf("播放文件[%s]出错，%s", file.Name, err.Error())
 		utils.Logger.Error(logStr)

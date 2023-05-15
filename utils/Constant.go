@@ -15,4 +15,7 @@ const (
 	CfgFilePath     = "file.path"
 	CfgEnable       = "server.enable"
 	CfgStopWaitTime = "server.stop_wait_time"
+
+	ContentType = "Content-Type"
+	CtAudioMpeg = "audio/mpeg"
 )

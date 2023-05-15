@@ -14,13 +14,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var (
 	//speakerInitialized bool  = false
 	muPlay    sync.Mutex
-	playCount int = 0
+	playCount int32 = 0
 )
 
 const (
@@ -36,13 +37,16 @@ var (
 )
 
 // BeepAudioPlayer is an audio player implementation that uses beep
-type BeepAudioPlayer struct{}
+type BeepAudioPlayer struct {
+	name string
+}
 
 // BeepController manages playing audio.
 //
 // TODO: make this an interface. this is fine for now since we're only using
 // beep our audio player.
 type BeepController struct {
+	name       string
 	audioPanel *audioPanel
 	//path       string
 	stopReason StopReason
@@ -91,14 +95,65 @@ func newAudioPanel(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser, c
 	}
 }
 
+func TryLock(fName string, name string) bool {
+	utils.Logger.
+		WithFields(log.Fields{
+			"c":    "beep",
+			"name": name,
+			"func": fName,
+		}).Debug("before try lock")
+	succ := muPlay.TryLock()
+	utils.Logger.
+		WithFields(log.Fields{
+			"c":    "beep",
+			"name": name,
+			"func": fName,
+			"succ": succ,
+		}).Debug("after try lock")
+	return succ
+}
+
+func Lock(fName string, name string) {
+	utils.Logger.
+		WithFields(log.Fields{
+			"c":    "beep",
+			"name": name,
+			"func": fName,
+		}).Debug("before lock")
+	muPlay.Lock()
+	utils.Logger.
+		WithFields(log.Fields{
+			"c":    "beep",
+			"name": name,
+			"func": fName,
+		}).Debug("after lock")
+}
+
+func Unlock(fName string, name string) {
+	utils.Logger.
+		WithFields(log.Fields{
+			"c":    "beep",
+			"name": name,
+			"func": fName,
+		}).Debug("before unlock")
+	muPlay.Unlock()
+	utils.Logger.
+		WithFields(log.Fields{
+			"c":    "beep",
+			"name": name,
+			"func": fName,
+		}).Debug("after unlock")
+}
+
 // Play a track and return a controller that lets you perform changes to a running track.
 func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64, callback func(reason StopReason)) (AudioController, error) {
-	playCount++
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	atomic.AddInt32(&playCount, 1)
+	Lock("Play", bmp.name)
+	defer Unlock("Play", bmp.name)
 
 	c := BeepController{
 		//path:     fileName,
+		name:     bmp.name,
 		callback: callback,
 	}
 
@@ -137,18 +192,19 @@ func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64,
 		return nil, fmt.Errorf("不支持的文件类型[%s]", filepath.Ext(fileName))
 	}
 
-	if playCount <= 1 {
+	if atomic.LoadInt32(&playCount) <= 1 {
 		utils.Logger.
 			WithFields(log.Fields{
 				"c":          "beep",
+				"name":       bmp.name,
 				"sampleRate": format.SampleRate,
 				"file":       fileName,
-			}).
-			Debug("init speaker")
+			}).Debug("init speaker")
 		_ = SpInit(maxSampleRate, format.SampleRate.N(time.Second/30))
 		utils.Logger.
 			WithFields(log.Fields{
 				"c":    "beep",
+				"name": bmp.name,
 				"file": fileName,
 			}).
 			Debug("init speaker ok!")
@@ -161,7 +217,9 @@ func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64,
 	c.stopReason = PlayOver
 	utils.Logger.
 		WithFields(log.Fields{
-			"c":    "beep",
+			"c": "beep",
+
+			"name": bmp.name,
 			"file": fileName,
 		}).
 		Debug("begin call play...")
@@ -169,12 +227,13 @@ func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64,
 		utils.Logger.
 			WithFields(log.Fields{
 				"c":                        "beep",
+				"name":                     bmp.name,
 				"file":                     fileName,
 				"seq callback stop reason": c.stopReason,
 			}).
 			Debug("streamer callback firing, ", fileName)
 		if c.stopReason == PlayOver {
-			time.AfterFunc(time.Millisecond, func() {
+			time.AfterFunc(time.Millisecond*100, func() {
 				c.Stop(c.stopReason)
 			})
 		}
@@ -182,9 +241,10 @@ func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64,
 			utils.Logger.
 				WithFields(log.Fields{
 					"c":    "beep",
+					"name": bmp.name,
 					"file": fileName,
 				}).
-				Debug("play callback ")
+				Debug("play callback")
 			c.callback(c.stopReason)
 			c.callback = nil
 		}
@@ -192,6 +252,7 @@ func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64,
 	utils.Logger.
 		WithFields(log.Fields{
 			"c":    "beep",
+			"name": bmp.name,
 			"file": fileName,
 		}).
 		Debug("end call play...")
@@ -229,8 +290,8 @@ func (bmp *BeepAudioPlayer) Play(fileName string, loopCount int, volume float64,
 //}
 
 func (c *BeepController) Pause() {
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	Lock("Pause", c.name)
+	defer Unlock("Pause", c.name)
 	if c.audioPanel == nil {
 		return
 	}
@@ -240,8 +301,8 @@ func (c *BeepController) Pause() {
 
 // PauseToggle pauses/unpauses audio. Returns true if currently paused, false if unpaused.
 func (c *BeepController) PauseToggle() bool {
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	Lock("PauseToggle", c.name)
+	defer Unlock("PauseToggle", c.name)
 	if c.audioPanel == nil {
 		return false
 	}
@@ -252,8 +313,8 @@ func (c *BeepController) PauseToggle() bool {
 
 // Paused returns current pause state
 func (c *BeepController) Paused() bool {
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	Lock("Paused", c.name)
+	defer Unlock("Paused", c.name)
 	if c.audioPanel == nil {
 		return false
 	}
@@ -262,8 +323,8 @@ func (c *BeepController) Paused() bool {
 }
 
 func (c *BeepController) Resume() {
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	Lock("Resume", c.name)
+	defer Unlock("Resume", c.name)
 	if c.audioPanel == nil {
 		return
 	}
@@ -273,8 +334,8 @@ func (c *BeepController) Resume() {
 
 // SetVolume the playing track
 func (c *BeepController) SetVolume(volume float64) {
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	Lock("SetVolume", c.name)
+	defer Unlock("SetVolume", c.name)
 
 	if c.audioPanel == nil {
 		return
@@ -355,8 +416,17 @@ func (c *BeepController) SetVolume(volume float64) {
 
 // Stop must be thread safe
 func (c *BeepController) Stop(reason StopReason) {
-	muPlay.Lock()
-	defer muPlay.Unlock()
+	if TryLock("Stop", c.name) {
+		defer Unlock("Stop", c.name)
+	} else {
+		utils.Logger.
+			WithFields(log.Fields{
+				"c":      "beep",
+				"name":   c.name,
+				"reason": reason,
+			}).Debug("try lock fail, exit stop ")
+		return
+	}
 
 	if c.audioPanel == nil {
 		return
@@ -365,43 +435,49 @@ func (c *BeepController) Stop(reason StopReason) {
 	// NOTE: this will cause the stremer to finish, and the seq callback will
 	// fire
 	c.stopReason = reason
-	if playCount <= 1 {
+	if atomic.LoadInt32(&playCount) <= 1 {
 		utils.Logger.
 			WithFields(log.Fields{
-				"c": "beep",
-			}).
-			Debug("enter close speaker")
-		playCount = 0
+				"c":      "beep",
+				"name":   c.name,
+				"reason": reason,
+			}).Debug("enter close speaker")
+		atomic.StoreInt32(&playCount, 0)
 		SpClose()
 		utils.Logger.
 			WithFields(log.Fields{
-				"c": "beep",
-			}).
-			Debug("exit close speaker")
+				"c":      "beep",
+				"name":   c.name,
+				"reason": reason,
+			}).Debug("exit close speaker")
+	} else {
+		atomic.AddInt32(&playCount, -1)
 	}
-	playCount--
 
 	if c.audioPanel.streamer != nil {
 		utils.Logger.
 			WithFields(log.Fields{
-				"c": "beep",
-			}).
-			Debug("closing audioPanel streamer")
+				"c":      "beep",
+				"name":   c.name,
+				"reason": reason,
+			}).Debug("closing audioPanel streamer")
 		c.audioPanel.free()
 		c.audioPanel = nil
 	}
 
 	utils.Logger.
 		WithFields(log.Fields{
-			"c": "beep",
-		}).
-		Debugf("stop reason: %v", reason)
+			"c":      "beep",
+			"name":   c.name,
+			"reason": reason,
+		}).Debugf("stop reason: %v", reason)
 	if reason != PlayOver && c.callback != nil {
 		utils.Logger.
 			WithFields(log.Fields{
-				"c": "beep",
-			}).
-			Debug("stop callback")
+				"c":      "beep",
+				"name":   c.name,
+				"reason": reason,
+			}).Debug("stop callback")
 		c.callback(reason)
 		c.callback = nil
 	}

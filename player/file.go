@@ -86,6 +86,11 @@ func downloadFileFromUrl(file *MusicFile, localFilePath string, retryTimes int) 
 		}
 		defer resp.Body.Close()
 
+		if resp.Header.Get(utils.ContentType) != utils.CtAudioMpeg {
+			utils.Logger.Error("获取文件出错，文件类型不是音频文件")
+			goto downloadErr
+		}
+
 		err = nil
 		for {
 			nr, er := resp.Body.Read(buf)

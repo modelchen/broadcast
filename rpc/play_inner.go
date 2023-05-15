@@ -3,6 +3,7 @@ package rpc
 import (
 	"Broadcast/player"
 	"errors"
+	"strconv"
 )
 
 type PlayInner struct{}
@@ -30,8 +31,8 @@ func (p *PlayInner) Run(cmd *Command, controller *player.Controller) (data strin
 	if level == nil {
 		level = "1"
 	}
-	lvl, ok := level.(float64)
-	if !ok {
+	lvl, err1 := strconv.Atoi(level.(string))
+	if err1 != nil {
 		return "", errors.New("紧急级别必须是数字")
 	}
 

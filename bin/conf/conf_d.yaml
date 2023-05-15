@@ -1,11 +1,11 @@
-bill: '{"name":"默认节目","slot":[]}'
+bill: '{"id":"1651399447260708865","appKey":"","ver":"20220420","name":"循环报警","slot":[{"sdt":"08:30","edt":"17:30","StartHour":8,"StartMinute":30,"StartHM":830,"EndHour":17,"EndMinute":30,"EndHM":1730,"playOrd":1,"playMode":2,"files":[{"fName":"inner_tip5.mp3","fId":"8336201441538277376","playTimes":0,"url":"http://192.168.0.174:8088/upload/2023-04-17/20230417151156006227695456.mp3","fileOrd":1,"Downloading":false}]}]}'
 log:
     level: debug
 mqtt:
     clientid: CoreBroadCast
-    host: 192.168.10.250:1883
+    host: 192.168.10.243:1883
     password: public
     username: admin
 server:
     enable: true
-    Stop_Wait_Time: 900
+    stop_wait_time: 900
